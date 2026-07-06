@@ -1,14 +1,23 @@
-// Phase 1: 円形リング + 集中⇄休憩の状態機械 + 2 カラムレイアウト（md+）
+// Phase 3: 永続化・ステッパー・背景演出を統合
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { AmbientGlow } from "@/components/AmbientGlow";
 import { MixerRow } from "@/components/MixerRow";
 import { ModeLabel } from "@/components/ModeLabel";
+import { Stepper } from "@/components/Stepper";
 import { TimerRing } from "@/components/TimerRing";
 import {
   CHANNELS,
   DEFAULT_VOLUMES,
   type ChannelId,
 } from "@/lib/channels";
+import {
+  loadSettings,
+  loadTodaySessions,
+  saveSettings,
+  saveTodaySessions,
+  todayKey,
+} from "@/lib/db";
 import {
   ensureContext,
   playChime,
@@ -29,12 +38,15 @@ import {
   resumePhase,
   skipPhase,
   startFocus,
+  updateSettings,
 } from "@/lib/pomodoro";
 import { formatMmSs } from "@/lib/timer";
 import type { PomodoroState } from "@/lib/types";
 
 const PILL_BTN =
   "min-h-11 rounded-full border px-6 text-sm tracking-widest transition-shadow duration-700";
+
+const SAVE_DEBOUNCE_MS = 500;
 
 function vibrateOnPhaseEnd(): void {
   try {
@@ -53,6 +65,30 @@ export default function Home() {
   const [pomodoro, setPomodoro] = useState<PomodoroState>(createInitialState);
   const [, redraw] = useState(0);
   const [reducedMotion, setReducedMotion] = useState(false);
+  const hydrated = useRef(false);
+  const dateKeyRef = useRef(todayKey());
+
+  // --- ミキサー ---
+  const [playing, setPlaying] = useState(false);
+  const [masterVol, setMasterVol] = useState(80);
+  const [volumes, setVolumes] = useState(DEFAULT_VOLUMES);
+  const channels = useRef<Partial<Record<ChannelId, Channel>>>({});
+
+  // IndexedDB から設定・今日のセッション数を復元（再生状態は復元しない）
+  useEffect(() => {
+    void (async () => {
+      const [settings, sessions] = await Promise.all([loadSettings(), loadTodaySessions()]);
+      setPomodoro(
+        createInitialState(
+          { focusMs: settings.focusMs, breakMs: settings.breakMs },
+          sessions,
+        ),
+      );
+      setMasterVol(settings.masterVol);
+      setVolumes(settings.volumes);
+      hydrated.current = true;
+    })();
+  }, []);
 
   useEffect(() => {
     const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -62,6 +98,26 @@ export default function Home() {
     return () => mq.removeEventListener("change", onChange);
   }, []);
 
+  // 設定・音量のデバウンス保存
+  useEffect(() => {
+    if (!hydrated.current) return;
+    const id = window.setTimeout(() => {
+      void saveSettings({
+        focusMs: pomodoro.settings.focusMs,
+        breakMs: pomodoro.settings.breakMs,
+        masterVol,
+        volumes,
+      });
+    }, SAVE_DEBOUNCE_MS);
+    return () => window.clearTimeout(id);
+  }, [pomodoro.settings.focusMs, pomodoro.settings.breakMs, masterVol, volumes]);
+
+  // セッション数の保存
+  useEffect(() => {
+    if (!hydrated.current) return;
+    void saveTodaySessions(pomodoro.sessionsCompleted);
+  }, [pomodoro.sessionsCompleted]);
+
   const running = isRunning(pomodoro.phase);
 
   useEffect(() => {
@@ -69,6 +125,16 @@ export default function Home() {
     const id = window.setInterval(() => redraw((n) => n + 1), 250);
     const onVisibility = () => {
       if (document.hidden) return;
+
+      // 日付が変わっていればセッション表示をリセット（過去分は DB に残る）
+      const key = todayKey();
+      if (key !== dateKeyRef.current) {
+        dateKeyRef.current = key;
+        void loadTodaySessions().then((count) => {
+          setPomodoro((prev) => ({ ...prev, sessionsCompleted: count }));
+        });
+      }
+
       setPomodoro((prev) => {
         const { state, chime } = advanceIfExpired(prev);
         if (chime) chimeAndVibrate();
@@ -130,12 +196,15 @@ export default function Home() {
 
   const focusMin = Math.round(pomodoro.settings.focusMs / 60_000);
   const breakMin = Math.round(pomodoro.settings.breakMs / 60_000);
+  const stepperDisabled = pomodoro.phase.mode !== "idle";
 
-  // --- ミキサー: 6 チャンネル + マスター音量 + 一括停止（spec §3.2） ---
-  const [playing, setPlaying] = useState(false);
-  const [masterVol, setMasterVol] = useState(80);
-  const [volumes, setVolumes] = useState(DEFAULT_VOLUMES);
-  const channels = useRef<Partial<Record<ChannelId, Channel>>>({});
+  const changeFocusMin = (min: number) => {
+    setPomodoro((prev) => updateSettings(prev, { focusMs: min * 60_000 }));
+  };
+
+  const changeBreakMin = (min: number) => {
+    setPomodoro((prev) => updateSettings(prev, { breakMs: min * 60_000 }));
+  };
 
   useEffect(
     () => () => {
@@ -184,109 +253,124 @@ export default function Home() {
   };
 
   return (
-    <main className="mx-auto grid min-h-dvh w-full max-w-5xl grid-cols-1 gap-5 px-5 pb-10 pt-8 md:grid-cols-2 md:items-start md:gap-8 md:px-8">
-      <header className="md:col-span-2">
-        <h1 className="text-center text-sm font-light tracking-[0.5em] text-haze">夜凪</h1>
-      </header>
+    <>
+      <AmbientGlow playing={playing} volumes={volumes} reducedMotion={reducedMotion} />
 
-      <section className="flex flex-col items-center gap-6 rounded-2xl border border-frost/5 bg-panel px-6 py-10">
-        <ModeLabel breakMode={breakMode} />
+      <main className="relative z-10 mx-auto grid min-h-dvh w-full max-w-5xl grid-cols-1 gap-5 px-5 pb-10 pt-8 md:grid-cols-2 md:items-start md:gap-8 md:px-8">
+        <header className="md:col-span-2">
+          <h1 className="text-center text-sm font-light tracking-[0.5em] text-haze">夜凪</h1>
+        </header>
 
-        <div className="relative flex items-center justify-center">
-          <TimerRing
-            progress={progress}
-            breakMode={breakMode}
-            paused={paused}
-            reducedMotion={reducedMotion}
-          />
-          <p
-            className={`absolute text-5xl font-light tabular-nums tracking-widest text-frost transition-opacity duration-700 md:text-6xl ${
-              paused ? "opacity-60" : ""
-            }`}
-            style={{
-              textShadow: breakMode
-                ? "0 0 32px rgba(143, 224, 220, 0.25)"
-                : "0 0 32px rgba(174, 184, 244, 0.25)",
-            }}
-          >
-            {formatMmSs(remainingMs)}
+        <section className="flex flex-col items-center gap-6 rounded-2xl border border-frost/5 bg-panel px-6 py-10">
+          <ModeLabel breakMode={breakMode} />
+
+          <div className="relative flex items-center justify-center">
+            <TimerRing
+              progress={progress}
+              breakMode={breakMode}
+              paused={paused}
+              reducedMotion={reducedMotion}
+            />
+            <p
+              className={`absolute text-5xl font-light tabular-nums tracking-widest text-frost transition-opacity duration-700 md:text-6xl ${
+                paused ? "opacity-60" : ""
+              }`}
+              style={{
+                textShadow: breakMode
+                  ? "0 0 32px rgba(143, 224, 220, 0.25)"
+                  : "0 0 32px rgba(174, 184, 244, 0.25)",
+              }}
+            >
+              {formatMmSs(remainingMs)}
+            </p>
+          </div>
+
+          <p className="text-xs tracking-widest text-haze">
+            {pomodoro.sessionsCompleted} セッション完了
           </p>
-        </div>
 
-        <p className="text-xs tracking-widest text-haze">
-          {pomodoro.sessionsCompleted} セッション完了
-        </p>
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            <button
+              type="button"
+              onClick={handleReset}
+              className={`${PILL_BTN} border-haze/30 text-haze shadow-[0_0_12px_rgba(138,147,168,0.1)] hover:shadow-[0_0_20px_rgba(138,147,168,0.2)]`}
+            >
+              リセット
+            </button>
+            <button
+              type="button"
+              onClick={toggleTimer}
+              className={`${PILL_BTN} border-moon/40 text-moon shadow-[0_0_16px_rgba(174,184,244,0.15)] hover:shadow-[0_0_28px_rgba(174,184,244,0.35)]`}
+              style={
+                breakMode
+                  ? {
+                      borderColor: "rgba(143, 224, 220, 0.4)",
+                      color: "#8FE0DC",
+                      boxShadow: "0 0 16px rgba(143, 224, 220, 0.15)",
+                    }
+                  : undefined
+              }
+            >
+              {timerLabel}
+            </button>
+            <button
+              type="button"
+              onClick={handleSkip}
+              disabled={pomodoro.phase.mode === "idle"}
+              className={`${PILL_BTN} border-haze/30 text-haze shadow-[0_0_12px_rgba(138,147,168,0.1)] hover:shadow-[0_0_20px_rgba(138,147,168,0.2)] disabled:cursor-not-allowed disabled:opacity-40`}
+            >
+              スキップ
+            </button>
+          </div>
 
-        <div className="flex flex-wrap items-center justify-center gap-3">
-          <button
-            type="button"
-            onClick={handleReset}
-            className={`${PILL_BTN} border-haze/30 text-haze shadow-[0_0_12px_rgba(138,147,168,0.1)] hover:shadow-[0_0_20px_rgba(138,147,168,0.2)]`}
-          >
-            リセット
-          </button>
-          <button
-            type="button"
-            onClick={toggleTimer}
-            className={`${PILL_BTN} border-moon/40 text-moon shadow-[0_0_16px_rgba(174,184,244,0.15)] hover:shadow-[0_0_28px_rgba(174,184,244,0.35)]`}
-            style={
-              breakMode
-                ? {
-                    borderColor: "rgba(143, 224, 220, 0.4)",
-                    color: "#8FE0DC",
-                    boxShadow: "0 0 16px rgba(143, 224, 220, 0.15)",
-                  }
-                : undefined
-            }
-          >
-            {timerLabel}
-          </button>
-          <button
-            type="button"
-            onClick={handleSkip}
-            disabled={pomodoro.phase.mode === "idle"}
-            className={`${PILL_BTN} border-haze/30 text-haze shadow-[0_0_12px_rgba(138,147,168,0.1)] hover:shadow-[0_0_20px_rgba(138,147,168,0.2)] disabled:cursor-not-allowed disabled:opacity-40`}
-          >
-            スキップ
-          </button>
-        </div>
+          <div className="flex flex-col gap-3">
+            <Stepper
+              label="集中"
+              value={focusMin}
+              onChange={changeFocusMin}
+              disabled={stepperDisabled}
+            />
+            <Stepper
+              label="休憩"
+              value={breakMin}
+              onChange={changeBreakMin}
+              disabled={stepperDisabled}
+            />
+          </div>
+        </section>
 
-        <p className="text-[11px] tracking-widest text-haze/80">
-          集中 {focusMin} 分 · 休憩 {breakMin} 分
-        </p>
-      </section>
+        <section className="flex flex-col gap-4 rounded-2xl border border-frost/5 bg-panel px-6 py-6">
+          <div className="flex items-center justify-between gap-4">
+            <h2 className="shrink-0 text-xs tracking-widest text-haze">環境音</h2>
+            <button
+              type="button"
+              onClick={togglePlay}
+              className={`${PILL_BTN} shrink-0 border-moon/40 px-8 text-moon shadow-[0_0_16px_rgba(174,184,244,0.15)] hover:shadow-[0_0_28px_rgba(174,184,244,0.35)]`}
+            >
+              {playing ? "一時停止" : "再生"}
+            </button>
+          </div>
 
-      <section className="flex flex-col gap-4 rounded-2xl border border-frost/5 bg-panel px-6 py-6">
-        <div className="flex items-center justify-between gap-4">
-          <h2 className="shrink-0 text-xs tracking-widest text-haze">環境音</h2>
-          <button
-            type="button"
-            onClick={togglePlay}
-            className={`${PILL_BTN} shrink-0 border-moon/40 px-8 text-moon shadow-[0_0_16px_rgba(174,184,244,0.15)] hover:shadow-[0_0_28px_rgba(174,184,244,0.35)]`}
-          >
-            {playing ? "一時停止" : "再生"}
-          </button>
-        </div>
-
-        <MixerRow
-          name="全体"
-          description="マスター音量"
-          color="#AEB8F4"
-          value={masterVol}
-          onChange={changeMasterVol}
-        />
-
-        {CHANNELS.map((def) => (
           <MixerRow
-            key={def.id}
-            name={def.name}
-            description={def.description}
-            color={def.color}
-            value={volumes[def.id]}
-            onChange={(v) => changeChannelVol(def.id, v)}
+            name="全体"
+            description="マスター音量"
+            color="#AEB8F4"
+            value={masterVol}
+            onChange={changeMasterVol}
           />
-        ))}
-      </section>
-    </main>
+
+          {CHANNELS.map((def) => (
+            <MixerRow
+              key={def.id}
+              name={def.name}
+              description={def.description}
+              color={def.color}
+              value={volumes[def.id]}
+              onChange={(v) => changeChannelVol(def.id, v)}
+            />
+          ))}
+        </section>
+      </main>
+    </>
   );
 }

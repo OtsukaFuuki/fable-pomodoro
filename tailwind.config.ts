@@ -23,9 +23,14 @@ const config: Config = {
           "0%, 100%": { opacity: "1" },
           "50%": { opacity: "0.72" },
         },
+        "corner-breathe": {
+          "0%, 100%": { opacity: "0.6" },
+          "50%": { opacity: "1" },
+        },
       },
       animation: {
         "ring-breathe": "ring-breathe 2s ease-in-out infinite",
+        "corner-breathe": "corner-breathe 4s ease-in-out infinite",
       },
     },
   },

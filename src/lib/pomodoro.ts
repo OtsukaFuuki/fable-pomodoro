@@ -16,8 +16,9 @@ import {
 
 export function createInitialState(
   settings: PomodoroSettings = { focusMs: DEFAULT_FOCUS_MS, breakMs: DEFAULT_BREAK_MS },
+  sessionsCompleted = 0,
 ): PomodoroState {
-  return { phase: { mode: "idle" }, sessionsCompleted: 0, settings };
+  return { phase: { mode: "idle" }, sessionsCompleted, settings };
 }
 
 export function getRemainingMs(state: PomodoroState): number {
@@ -126,6 +127,13 @@ export function skipPhase(state: PomodoroState): PomodoroState {
   if (phase.mode === "focus") return startBreakPhase(state);
   if (phase.mode === "break") return { ...state, phase: { mode: "idle" } };
   return state;
+}
+
+export function updateSettings(
+  state: PomodoroState,
+  patch: Partial<PomodoroSettings>,
+): PomodoroState {
+  return { ...state, settings: { ...state.settings, ...patch } };
 }
 
 /** 実行中フェーズが 0 に到達したら次状態へ。チャイム要否も返す */
