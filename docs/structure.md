@@ -27,7 +27,7 @@ yonagi/
 
 - `GlowSlider.tsx`: 自作スライダー（実装済み）
 - `TimerRing.tsx` / `ModeLabel.tsx`: Phase 1 で追加
-- `Stepper.tsx` / `AmbientGlow.tsx`: Phase 3 で追加
+- `SettingsModal.tsx` / `SwRegister.tsx`: Phase 4 で追加
 
 ## ルール
 

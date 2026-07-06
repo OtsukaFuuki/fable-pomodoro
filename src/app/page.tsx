@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { AmbientGlow } from "@/components/AmbientGlow";
 import { MixerRow } from "@/components/MixerRow";
 import { ModeLabel } from "@/components/ModeLabel";
+import { SettingsModal } from "@/components/SettingsModal";
 import { Stepper } from "@/components/Stepper";
 import { TimerRing } from "@/components/TimerRing";
 import {
@@ -12,6 +13,7 @@ import {
   type ChannelId,
 } from "@/lib/channels";
 import {
+  clearAllData,
   loadSettings,
   loadTodaySessions,
   saveSettings,
@@ -72,6 +74,7 @@ export default function Home() {
   const [playing, setPlaying] = useState(false);
   const [masterVol, setMasterVol] = useState(80);
   const [volumes, setVolumes] = useState(DEFAULT_VOLUMES);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const channels = useRef<Partial<Record<ChannelId, Channel>>>({});
 
   // IndexedDB から設定・今日のセッション数を復元（再生状態は復元しない）
@@ -252,13 +255,44 @@ export default function Home() {
     applyChannelVolume(id, v);
   };
 
+  const handleClearData = async () => {
+    await clearAllData();
+    if (playing) {
+      await suspendAll();
+      setPlaying(false);
+    }
+    Object.values(channels.current).forEach((ch) => ch?.dispose());
+    channels.current = {};
+    setPomodoro(createInitialState());
+    setMasterVol(80);
+    setVolumes({ ...DEFAULT_VOLUMES });
+  };
+
   return (
     <>
       <AmbientGlow playing={playing} volumes={volumes} reducedMotion={reducedMotion} />
 
       <main className="relative z-10 mx-auto grid min-h-dvh w-full max-w-5xl grid-cols-1 gap-5 px-5 pb-10 pt-8 md:grid-cols-2 md:items-start md:gap-8 md:px-8">
-        <header className="md:col-span-2">
-          <h1 className="text-center text-sm font-light tracking-[0.5em] text-haze">夜凪</h1>
+        <header className="relative flex items-center md:col-span-2">
+          <button
+            type="button"
+            onClick={() => setSettingsOpen(true)}
+            aria-label="設定を開く"
+            className="absolute right-0 flex h-11 w-11 items-center justify-center rounded-full border border-haze/30 text-haze shadow-[0_0_12px_rgba(138,147,168,0.1)] transition-shadow duration-700 hover:shadow-[0_0_20px_rgba(138,147,168,0.25)]"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              className="h-5 w-5"
+              aria-hidden
+            >
+              <circle cx="12" cy="12" r="3" />
+              <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
+            </svg>
+          </button>
+          <h1 className="w-full text-center text-sm font-light tracking-[0.5em] text-haze">夜凪</h1>
         </header>
 
         <section className="flex flex-col items-center gap-6 rounded-2xl border border-frost/5 bg-panel px-6 py-10">
@@ -371,6 +405,12 @@ export default function Home() {
           ))}
         </section>
       </main>
+
+      <SettingsModal
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        onClearData={() => void handleClearData()}
+      />
     </>
   );
 }

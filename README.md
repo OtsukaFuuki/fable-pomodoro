@@ -35,4 +35,4 @@ https://github.com/OtsukaFuuki/fable-pomodoro
 
 ## 現在の状態
 
-Phase 3 まで実装済み。設定・音量・セッション数の永続化、分数ステッパー、背景演出が動く。残タスクは docs/handoff.md を参照。
+Phase 4 まで実装済み。PWA としてインストール可能。全機能がオフラインで動作します。
