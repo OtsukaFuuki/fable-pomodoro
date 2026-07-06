@@ -29,6 +29,10 @@ http://localhost:3000 を開く。
 - 設計判断: [docs/decisions.md](docs/decisions.md)
 - 引き継ぎ書: [docs/handoff.md](docs/handoff.md)
 
+## リポジトリ
+
+https://github.com/OtsukaFuuki/fable-pomodoro
+
 ## 現在の状態
 
-垂直スライス（Phase 0.5）まで実装済み。数字のみのタイマーと「雨」チャンネル 1 つが動く。残タスクは docs/handoff.md を参照。
+Phase 1 まで実装済み。円形リング・集中⇄休憩の状態機械・2 カラムレイアウトが動く。環境音は「雨」チャンネルのみ。残タスクは docs/handoff.md を参照。

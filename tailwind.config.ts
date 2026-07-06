@@ -18,6 +18,15 @@ const config: Config = {
         padc: "#E8A8D8",
         insect: "#A8E8B0",
       },
+      keyframes: {
+        "ring-breathe": {
+          "0%, 100%": { opacity: "1" },
+          "50%": { opacity: "0.72" },
+        },
+      },
+      animation: {
+        "ring-breathe": "ring-breathe 2s ease-in-out infinite",
+      },
     },
   },
   plugins: [],

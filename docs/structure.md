@@ -19,13 +19,15 @@ yonagi/
 
 - `timer.ts`: endTime 逆算方式のカウントダウン（実装済み）
 - `audio-engine.ts`: 環境音合成エンジン。AudioContext・AudioNode の生成/破棄はここに閉じ込める（雨のみ実装済み）
-- `types.ts`: 全型定義（Phase 1 以降で必要になり次第追加）
+- `types.ts`: ポモドーロ状態機械の型定義（Phase 1 で追加）
+- `pomodoro.ts`: 集中⇄休憩の状態遷移ロジック（Phase 1 で追加）
 - `db.ts`: IndexedDB 永続化（Phase 3）
 
 ## src/components
 
 - `GlowSlider.tsx`: 自作スライダー（実装済み）
-- `TimerRing.tsx` / `MixerRow.tsx` / `Stepper.tsx` / `ModeLabel.tsx` …: Phase 1〜3 で追加
+- `TimerRing.tsx` / `ModeLabel.tsx`: Phase 1 で追加
+- `MixerRow.tsx` / `Stepper.tsx` …: Phase 2〜3 で追加
 
 ## ルール
 

@@ -120,11 +120,20 @@ export function createRainChannel(): Channel {
   };
 }
 
-// チャイム: 2 音 + 減衰。フェーズ切替時に呼ぶ（状態機械への接続は Phase 1。
-// spec §4.1 の「フィードバックディレイ 1 段の残響」も Phase 1 で足すこと）
+// チャイム: 2 音 + 減衰 + フィードバックディレイ 1 段の残響（spec §4.1）
 export function playChime(): void {
   const c = ensureContext();
   const notes = [659.25, 880]; // E5 → A5
+
+  const delay = c.createDelay(0.5);
+  delay.delayTime.value = 0.28;
+  const feedback = c.createGain();
+  feedback.gain.value = 0.32;
+  const wet = c.createGain();
+  wet.gain.value = 0.18;
+  delay.connect(feedback).connect(delay);
+  delay.connect(wet).connect(master!);
+
   notes.forEach((freq, i) => {
     const t = c.currentTime + i * 0.35;
     const osc = c.createOscillator();
@@ -133,7 +142,9 @@ export function playChime(): void {
     g.gain.setValueAtTime(0.001, t);
     g.gain.exponentialRampToValueAtTime(0.3, t + 0.02);
     g.gain.exponentialRampToValueAtTime(0.001, t + 1.2);
-    osc.connect(g).connect(master!);
+    osc.connect(g);
+    g.connect(master!);
+    g.connect(delay);
     osc.start(t);
     osc.stop(t + 1.3);
   });
