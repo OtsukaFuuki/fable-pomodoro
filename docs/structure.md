@@ -10,7 +10,7 @@ yonagi/
 ├── reference/         # コード規約の実物（変更禁止）
 ├── public/            # manifest / icons / sw.js（Phase 4 で作成）
 └── src/
-    ├── app/           # 単一ページ + layout（App Router）
+    ├── app/           # page.tsx（Server）+ home-page.tsx（Client）+ layout
     ├── components/    # TimerRing / GlowSlider / MixerRow / Stepper …
     └── lib/           # audio-engine / timer / db / types
 ```
