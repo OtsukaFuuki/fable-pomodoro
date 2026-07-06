@@ -8,7 +8,7 @@ yonagi/
 ├── README.md          # 人間用セットアップ手順（環境変数なし）
 ├── docs/              # 仕様・進捗・設計判断・引き継ぎ
 ├── reference/         # コード規約の実物（変更禁止）
-├── public/            # manifest / icons / sw.js（Phase 4 で作成）
+├── public/            # manifest / icons / sw.js / audio/（環境音 MP3）
 └── src/
     ├── app/           # page.tsx（Server）+ home-page.tsx（Client）+ layout
     ├── components/    # TimerRing / GlowSlider / MixerRow / Stepper …

@@ -8,15 +8,6 @@ interface SettingsModalProps {
   onClearData(): void;
 }
 
-const SYNTHESIS_NOTES: Record<string, string> = {
-  rain: "ローパスノイズ + 雨粒インパルス",
-  wave: "ブラウンノイズ + 低速 LFO",
-  wind: "ピンクノイズ + 彷徨うバンドパス",
-  furin: "ペンタトニックの減衰音",
-  pad: "デチューン正弦波 + ローパス",
-  insect: "高域チャープのクラスタ",
-};
-
 export function SettingsModal({ open, onClose, onClearData }: SettingsModalProps) {
   if (!open) return null;
 
@@ -50,17 +41,22 @@ export function SettingsModal({ open, onClose, onClearData }: SettingsModalProps
         <section className="mb-6">
           <h3 className="mb-3 text-xs tracking-widest text-haze">音について</h3>
           <p className="mb-4 text-[11px] leading-relaxed text-haze">
-            すべての環境音は Web Audio API でリアルタイム合成しています。音声ファイルは一切使いません。
+            環境音は <code className="text-frost">public/audio/</code>{" "}
+            に配置した MP3 ファイルを再生しています。ファイル名はチャンネル ID（rain.mp3 など）と一致させてください。
           </p>
           <ul className="flex flex-col gap-2">
             {CHANNELS.map((ch) => (
               <li key={ch.id} className="flex items-baseline gap-2 text-[11px]">
-                <span className="shrink-0 text-frost" style={{ color: ch.color }}>
+                <span className="shrink-0" style={{ color: ch.color }}>
                   {ch.name}
                 </span>
-                <span className="text-haze">{SYNTHESIS_NOTES[ch.id]}</span>
+                <span className="text-haze">{ch.id}.mp3</span>
               </li>
             ))}
+            <li className="flex items-baseline gap-2 text-[11px]">
+              <span className="shrink-0 text-frost">チャイム</span>
+              <span className="text-haze">chime.mp3（任意）</span>
+            </li>
           </ul>
         </section>
 
