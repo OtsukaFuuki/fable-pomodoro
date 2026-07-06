@@ -1,0 +1,8 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ダークテーマ固定。夜のためのアプリである（spec §2.1） */
+:root {
+  color-scheme: dark;
+}
