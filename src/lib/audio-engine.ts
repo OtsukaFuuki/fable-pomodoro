@@ -1,43 +1,18 @@
-// 環境音エンジン: マスター + 6 チャンネル（音声ファイル再生）+ チャイム
-// 音源は public/audio/ に配置した MP3 を Web Audio API でループ再生する
-// ミキシング（音量・停止・マスター）は従来どおり Channel インターフェースで閉じ込める
-
-import type { ChannelId } from "./channels";
+// BGM エンジン: プリセット内の MP3 を順番に再生してループ + チャイム
+import { getPreset, type PresetId } from "./audio-presets";
 
 export interface Channel {
   readonly id: string;
-  setVolume(v: number): void; // 0..1。0 でソース停止、>0 で必要なら起動
+  setVolume(v: number): void;
+  pause(): void;
+  resume(): void;
   dispose(): void;
 }
-
-/** public/audio/ 内のファイル名（拡張子 .mp3 固定） */
-export const AUDIO_PATHS: Record<ChannelId, string> = {
-  rain: "/audio/rain.mp3",
-  wave: "/audio/wave.mp3",
-  wind: "/audio/wind.mp3",
-  furin: "/audio/furin.mp3",
-  pad: "/audio/pad.mp3",
-  insect: "/audio/insect.mp3",
-};
-
-const CHIME_PATH = "/audio/chime.mp3";
-
-/** チャンネルごとのゲイン上限（ファイル側の音量も調整してください） */
-const GAIN_CAPS: Record<ChannelId, number> = {
-  rain: 0.7,
-  wave: 0.7,
-  wind: 0.65,
-  furin: 0.6,
-  pad: 0.6,
-  insect: 0.55,
-};
 
 let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
 const bufferCache = new Map<string, AudioBuffer>();
 
-// なぜ遅延生成か: iOS はユーザー操作なしに AudioContext を鳴らせない。
-// 必ずボタンハンドラ等のジェスチャ内から呼ぶこと
 export function ensureContext(): AudioContext {
   if (!ctx) {
     ctx = new AudioContext();
@@ -73,108 +48,105 @@ async function loadAudioBuffer(c: AudioContext, url: string): Promise<AudioBuffe
   }
 }
 
-function createFileChannel(id: ChannelId, url: string, gainCap: number): Channel {
+/** プリセット内のファイルを 1 → 2 → 3 → 1 … と順番に再生する */
+export function createPresetPlayer(presetId: PresetId): Channel {
+  const preset = getPreset(presetId);
   const c = ensureContext();
   const gain = c.createGain();
   gain.gain.value = 0;
   gain.connect(master!);
 
-  let src: AudioBufferSourceNode | null = null;
-  let loading: Promise<AudioBuffer | null> | null = null;
   let active = false;
+  let buffers: (AudioBuffer | null)[] | null = null;
+  let currentSrc: AudioBufferSourceNode | null = null;
+  let trackIndex = 0;
+  let offsetSec = 0;
+  let startedAt = 0;
 
-  const stop = () => {
-    active = false;
+  const stopCurrent = () => {
+    if (!currentSrc) return;
+    currentSrc.onended = null;
     try {
-      src?.stop();
+      currentSrc.stop();
     } catch {
       /* 未開始なら無視 */
     }
-    src?.disconnect();
-    src = null;
+    currentSrc.disconnect();
+    currentSrc = null;
   };
 
-  const start = () => {
-    if (src || active) return;
-    active = true;
+  const playAt = (index: number, offset = 0) => {
+    if (!active || !buffers || buffers.length === 0) return;
 
-    if (!loading) loading = loadAudioBuffer(c, url);
-    void loading.then((buf) => {
-      if (!active || !buf) {
-        active = false;
-        if (!buf) loading = null;
-        return;
-      }
-      src = c.createBufferSource();
-      src.buffer = buf;
-      src.loop = true;
-      src.connect(gain);
-      src.start();
-    });
+    const buf = buffers[index];
+    if (!buf) {
+      playAt((index + 1) % buffers.length, 0);
+      return;
+    }
+
+    const safeOffset = Math.min(Math.max(0, offset), Math.max(0, buf.duration - 0.01));
+
+    stopCurrent();
+    const src = c.createBufferSource();
+    src.buffer = buf;
+    src.loop = false;
+    src.connect(gain);
+    trackIndex = index;
+    offsetSec = safeOffset;
+    startedAt = c.currentTime - safeOffset;
+    const next = (index + 1) % buffers.length;
+    src.onended = () => {
+      if (active) playAt(next, 0);
+    };
+    src.start(0, safeOffset);
+    currentSrc = src;
   };
+
+  const ensureBuffers = () =>
+    buffers
+      ? Promise.resolve(buffers)
+      : Promise.all(preset.files.map((url) => loadAudioBuffer(c, url))).then((loaded) => {
+          buffers = loaded;
+          return loaded;
+        });
 
   return {
-    id,
+    id: preset.id,
     setVolume(v: number) {
-      if (v > 0) start();
-      else stop();
-      gain.gain.setTargetAtTime(v * gainCap, c.currentTime, 0.1);
+      gain.gain.setTargetAtTime(v * 0.85, c.currentTime, 0.1);
+    },
+    pause() {
+      if (!active) return;
+      if (currentSrc) {
+        offsetSec = c.currentTime - startedAt;
+        const buf = buffers?.[trackIndex];
+        if (buf) offsetSec = Math.min(Math.max(0, offsetSec), Math.max(0, buf.duration - 0.01));
+      }
+      active = false;
+      stopCurrent();
+    },
+    resume() {
+      if (active) return;
+      active = true;
+      void ensureBuffers().then((loaded) => {
+        if (!active) return;
+        if (!loaded.some((b) => b)) {
+          active = false;
+          return;
+        }
+        playAt(trackIndex, offsetSec);
+      });
     },
     dispose() {
-      stop();
+      active = false;
+      stopCurrent();
       gain.disconnect();
     },
   };
 }
 
-export function createRainChannel(): Channel {
-  return createFileChannel("rain", AUDIO_PATHS.rain, GAIN_CAPS.rain);
-}
-export function createWaveChannel(): Channel {
-  return createFileChannel("wave", AUDIO_PATHS.wave, GAIN_CAPS.wave);
-}
-export function createWindChannel(): Channel {
-  return createFileChannel("wind", AUDIO_PATHS.wind, GAIN_CAPS.wind);
-}
-export function createFurinChannel(): Channel {
-  return createFileChannel("furin", AUDIO_PATHS.furin, GAIN_CAPS.furin);
-}
-export function createPadChannel(): Channel {
-  return createFileChannel("pad", AUDIO_PATHS.pad, GAIN_CAPS.pad);
-}
-export function createInsectChannel(): Channel {
-  return createFileChannel("insect", AUDIO_PATHS.insect, GAIN_CAPS.insect);
-}
-
-export type ChannelFactory = () => Channel;
-
-export const CHANNEL_FACTORIES: Record<string, ChannelFactory> = {
-  rain: createRainChannel,
-  wave: createWaveChannel,
-  wind: createWindChannel,
-  furin: createFurinChannel,
-  pad: createPadChannel,
-  insect: createInsectChannel,
-};
-
-// チャイム: chime.mp3 があれば再生、なければ簡易合成にフォールバック
 export function playChime(): void {
   const c = ensureContext();
-  void loadAudioBuffer(c, CHIME_PATH).then((buf) => {
-    if (buf) {
-      const src = c.createBufferSource();
-      const g = c.createGain();
-      g.gain.value = 0.5;
-      src.buffer = buf;
-      src.connect(g).connect(master!);
-      src.start();
-      return;
-    }
-    playSyntheticChime(c);
-  });
-}
-
-function playSyntheticChime(c: AudioContext): void {
   const notes = [659.25, 880];
   notes.forEach((freq, i) => {
     const t = c.currentTime + i * 0.35;

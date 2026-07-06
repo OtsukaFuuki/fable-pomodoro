@@ -18,7 +18,8 @@ yonagi/
 ## src/lib
 
 - `timer.ts`: endTime 逆算方式のカウントダウン（実装済み）
-- `audio-engine.ts`: 環境音合成エンジン。AudioContext・AudioNode の生成/破棄はここに閉じ込める（雨のみ実装済み）
+- `audio-presets.ts`: BGM プリセット定義（jazz など）
+- `audio-engine.ts`: プリセットの複数 MP3 重ね再生
 - `types.ts`: ポモドーロ状態機械の型定義（Phase 1 で追加）
 - `db.ts`: IndexedDB 永続化（Phase 3 で追加）
 - `db.ts`: IndexedDB 永続化（Phase 3）

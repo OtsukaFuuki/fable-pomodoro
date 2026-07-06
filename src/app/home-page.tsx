@@ -2,16 +2,24 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { AmbientGlow } from "@/components/AmbientGlow";
+import {
+  ICON_BTN,
+  PauseIcon,
+  PlayIcon,
+  ResetIcon,
+  SkipIcon,
+} from "@/components/ControlIcons";
 import { MixerRow } from "@/components/MixerRow";
 import { ModeLabel } from "@/components/ModeLabel";
 import { SettingsModal } from "@/components/SettingsModal";
 import { Stepper } from "@/components/Stepper";
 import { TimerRing } from "@/components/TimerRing";
 import {
-  CHANNELS,
-  DEFAULT_VOLUMES,
-  type ChannelId,
-} from "@/lib/channels";
+  AUDIO_PRESETS,
+  DEFAULT_PRESET,
+  getPreset,
+  type PresetId,
+} from "@/lib/audio-presets";
 import {
   clearAllData,
   loadSettings,
@@ -21,6 +29,7 @@ import {
   todayKey,
 } from "@/lib/db";
 import {
+  createPresetPlayer,
   ensureContext,
   playChime,
   setMasterVolume,
@@ -44,9 +53,6 @@ import {
 } from "@/lib/pomodoro";
 import { formatMmSs } from "@/lib/timer";
 import type { PomodoroState } from "@/lib/types";
-
-const PILL_BTN =
-  "min-h-11 rounded-full border px-6 text-sm tracking-widest transition-shadow duration-700";
 
 const SAVE_DEBOUNCE_MS = 500;
 
@@ -73,9 +79,9 @@ export function HomePage() {
   // --- ミキサー ---
   const [playing, setPlaying] = useState(false);
   const [masterVol, setMasterVol] = useState(80);
-  const [volumes, setVolumes] = useState(DEFAULT_VOLUMES);
+  const [selectedPreset, setSelectedPreset] = useState<PresetId>(DEFAULT_PRESET);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const channels = useRef<Partial<Record<ChannelId, Channel>>>({});
+  const player = useRef<Channel | null>(null);
 
   // IndexedDB から設定・今日のセッション数を復元（再生状態は復元しない）
   useEffect(() => {
@@ -88,7 +94,7 @@ export function HomePage() {
         ),
       );
       setMasterVol(settings.masterVol);
-      setVolumes(settings.volumes);
+      setSelectedPreset(settings.selectedPreset);
       hydrated.current = true;
     })();
   }, []);
@@ -109,11 +115,11 @@ export function HomePage() {
         focusMs: pomodoro.settings.focusMs,
         breakMs: pomodoro.settings.breakMs,
         masterVol,
-        volumes,
+        selectedPreset,
       });
     }, SAVE_DEBOUNCE_MS);
     return () => window.clearTimeout(id);
-  }, [pomodoro.settings.focusMs, pomodoro.settings.breakMs, masterVol, volumes]);
+  }, [pomodoro.settings.focusMs, pomodoro.settings.breakMs, masterVol, selectedPreset]);
 
   // セッション数の保存
   useEffect(() => {
@@ -194,7 +200,7 @@ export function HomePage() {
     });
   };
 
-  const timerLabel =
+  const timerAriaLabel =
     pomodoro.phase.mode === "idle" ? "開始" : running ? "一時停止" : "再開";
 
   const focusMin = Math.round(pomodoro.settings.focusMs / 60_000);
@@ -209,50 +215,42 @@ export function HomePage() {
     setPomodoro((prev) => updateSettings(prev, { breakMs: min * 60_000 }));
   };
 
-  useEffect(
-    () => () => {
-      Object.values(channels.current).forEach((ch) => ch?.dispose());
-      channels.current = {};
-    },
-    [],
-  );
+  useEffect(() => () => player.current?.dispose(), []);
 
-  const ensureChannel = (id: ChannelId): Channel => {
-    if (!channels.current[id]) {
-      const def = CHANNELS.find((d) => d.id === id)!;
-      channels.current[id] = def.create();
-    }
-    return channels.current[id]!;
-  };
-
-  const applyChannelVolume = (id: ChannelId, v: number) => {
-    if (v > 0 && playing) ensureChannel(id).setVolume(v / 100);
-    else if (channels.current[id]) channels.current[id]!.setVolume(v / 100);
+  const disposePlayer = () => {
+    player.current?.dispose();
+    player.current = null;
   };
 
   const togglePlay = () => {
     if (playing) {
       void suspendAll();
+      player.current?.pause();
       setPlaying(false);
       return;
     }
     ensureContext();
     setMasterVolume(masterVol / 100);
-    CHANNELS.forEach((def) => {
-      const vol = volumes[def.id];
-      if (vol > 0) ensureChannel(def.id).setVolume(vol / 100);
-    });
+    if (!player.current) player.current = createPresetPlayer(selectedPreset);
+    player.current.setVolume(masterVol / 100);
+    player.current.resume();
     setPlaying(true);
   };
 
   const changeMasterVol = (v: number) => {
     setMasterVol(v);
     setMasterVolume(v / 100);
+    if (playing) player.current?.setVolume(v / 100);
   };
 
-  const changeChannelVol = (id: ChannelId, v: number) => {
-    setVolumes((prev) => ({ ...prev, [id]: v }));
-    applyChannelVolume(id, v);
+  const selectPreset = (id: PresetId) => {
+    setSelectedPreset(id);
+    if (!playing) return;
+    disposePlayer();
+    ensureContext();
+    player.current = createPresetPlayer(id);
+    player.current.setVolume(masterVol / 100);
+    player.current.resume();
   };
 
   const handleClearData = async () => {
@@ -261,16 +259,22 @@ export function HomePage() {
       await suspendAll();
       setPlaying(false);
     }
-    Object.values(channels.current).forEach((ch) => ch?.dispose());
-    channels.current = {};
+    disposePlayer();
     setPomodoro(createInitialState());
     setMasterVol(80);
-    setVolumes({ ...DEFAULT_VOLUMES });
+    setSelectedPreset(DEFAULT_PRESET);
   };
+
+  const preset = getPreset(selectedPreset);
 
   return (
     <>
-      <AmbientGlow playing={playing} volumes={volumes} reducedMotion={reducedMotion} />
+      <AmbientGlow
+        playing={playing}
+        color={preset.color}
+        volume={masterVol}
+        reducedMotion={reducedMotion}
+      />
 
       <main className="relative z-10 mx-auto grid min-h-dvh w-full max-w-5xl grid-cols-1 gap-5 px-5 pb-10 pt-8 md:grid-cols-2 md:items-start md:gap-8 md:px-8">
         <header className="relative flex items-center md:col-span-2">
@@ -327,14 +331,16 @@ export function HomePage() {
             <button
               type="button"
               onClick={handleReset}
-              className={`${PILL_BTN} border-haze/30 text-haze shadow-[0_0_12px_rgba(138,147,168,0.1)] hover:shadow-[0_0_20px_rgba(138,147,168,0.2)]`}
+              aria-label="リセット"
+              className={`${ICON_BTN} border-haze/30 text-haze shadow-[0_0_12px_rgba(138,147,168,0.1)] hover:shadow-[0_0_20px_rgba(138,147,168,0.2)]`}
             >
-              リセット
+              <ResetIcon />
             </button>
             <button
               type="button"
               onClick={toggleTimer}
-              className={`${PILL_BTN} border-moon/40 text-moon shadow-[0_0_16px_rgba(174,184,244,0.15)] hover:shadow-[0_0_28px_rgba(174,184,244,0.35)]`}
+              aria-label={timerAriaLabel}
+              className={`${ICON_BTN} border-moon/40 text-moon shadow-[0_0_16px_rgba(174,184,244,0.15)] hover:shadow-[0_0_28px_rgba(174,184,244,0.35)]`}
               style={
                 breakMode
                   ? {
@@ -345,15 +351,16 @@ export function HomePage() {
                   : undefined
               }
             >
-              {timerLabel}
+              {running ? <PauseIcon /> : <PlayIcon />}
             </button>
             <button
               type="button"
               onClick={handleSkip}
               disabled={pomodoro.phase.mode === "idle"}
-              className={`${PILL_BTN} border-haze/30 text-haze shadow-[0_0_12px_rgba(138,147,168,0.1)] hover:shadow-[0_0_20px_rgba(138,147,168,0.2)] disabled:cursor-not-allowed disabled:opacity-40`}
+              aria-label="スキップ"
+              className={`${ICON_BTN} border-haze/30 text-haze shadow-[0_0_12px_rgba(138,147,168,0.1)] hover:shadow-[0_0_20px_rgba(138,147,168,0.2)] disabled:cursor-not-allowed disabled:opacity-40`}
             >
-              スキップ
+              <SkipIcon />
             </button>
           </div>
 
@@ -375,34 +382,54 @@ export function HomePage() {
 
         <section className="flex flex-col gap-4 rounded-2xl border border-frost/5 bg-panel px-6 py-6">
           <div className="flex items-center justify-between gap-4">
-            <h2 className="shrink-0 text-xs tracking-widest text-haze">環境音</h2>
+            <h2 className="shrink-0 text-xs tracking-widest text-haze">BGM</h2>
             <button
               type="button"
               onClick={togglePlay}
-              className={`${PILL_BTN} shrink-0 border-moon/40 px-8 text-moon shadow-[0_0_16px_rgba(174,184,244,0.15)] hover:shadow-[0_0_28px_rgba(174,184,244,0.35)]`}
+              aria-label={playing ? "一時停止" : "再生"}
+              className={`${ICON_BTN} shrink-0 border-moon/40 text-moon shadow-[0_0_16px_rgba(174,184,244,0.15)] hover:shadow-[0_0_28px_rgba(174,184,244,0.35)]`}
             >
-              {playing ? "一時停止" : "再生"}
+              {playing ? <PauseIcon /> : <PlayIcon />}
             </button>
           </div>
 
+          <div className="flex flex-wrap gap-2">
+            {AUDIO_PRESETS.map((p) => {
+              const selected = selectedPreset === p.id;
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => selectPreset(p.id)}
+                  className={`min-h-11 rounded-full border px-6 text-sm tracking-widest transition-shadow duration-700 ${
+                    selected
+                      ? "shadow-[0_0_20px_rgba(242,208,145,0.25)]"
+                      : "border-haze/30 text-haze shadow-[0_0_12px_rgba(138,147,168,0.1)] hover:shadow-[0_0_20px_rgba(138,147,168,0.2)]"
+                  }`}
+                  style={
+                    selected
+                      ? {
+                          borderColor: `${p.color}66`,
+                          color: p.color,
+                        }
+                      : undefined
+                  }
+                >
+                  {p.name}
+                </button>
+              );
+            })}
+          </div>
+
+          <p className="text-[11px] tracking-widest text-haze">{preset.description}</p>
+
           <MixerRow
-            name="全体"
+            name="音量"
             description="マスター音量"
-            color="#AEB8F4"
+            color={preset.color}
             value={masterVol}
             onChange={changeMasterVol}
           />
-
-          {CHANNELS.map((def) => (
-            <MixerRow
-              key={def.id}
-              name={def.name}
-              description={def.description}
-              color={def.color}
-              value={volumes[def.id]}
-              onChange={(v) => changeChannelVol(def.id, v)}
-            />
-          ))}
         </section>
       </main>
 

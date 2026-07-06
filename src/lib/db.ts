@@ -1,7 +1,6 @@
-// IndexedDB 永続化: 設定・音量・日別セッション数（spec §3.1 / §3.2）
-// 再生状態は保存しない（docs/decisions.md）
+// IndexedDB 永続化: 設定・BGM プリセット・日別セッション数
 import { openDB, type DBSchema, type IDBPDatabase } from "idb";
-import { DEFAULT_VOLUMES, type ChannelId } from "./channels";
+import { DEFAULT_PRESET, type PresetId } from "./audio-presets";
 import { DEFAULT_BREAK_MS, DEFAULT_FOCUS_MS } from "./types";
 
 const DB_NAME = "yonagi";
@@ -11,7 +10,7 @@ export interface AppSettings {
   focusMs: number;
   breakMs: number;
   masterVol: number;
-  volumes: Record<ChannelId, number>;
+  selectedPreset: PresetId;
 }
 
 interface YonagiDB extends DBSchema {
@@ -20,7 +19,7 @@ interface YonagiDB extends DBSchema {
     value: AppSettings;
   };
   sessions: {
-    key: string; // YYYY-MM-DD
+    key: string;
     value: number;
   };
 }
@@ -51,22 +50,22 @@ export const DEFAULT_SETTINGS: AppSettings = {
   focusMs: DEFAULT_FOCUS_MS,
   breakMs: DEFAULT_BREAK_MS,
   masterVol: 80,
-  volumes: { ...DEFAULT_VOLUMES },
+  selectedPreset: DEFAULT_PRESET,
 };
 
 export async function loadSettings(): Promise<AppSettings> {
   try {
     const db = await getDb();
     const saved = await db.get("settings", "app");
-    if (!saved) return { ...DEFAULT_SETTINGS, volumes: { ...DEFAULT_VOLUMES } };
+    if (!saved) return { ...DEFAULT_SETTINGS };
     return {
       focusMs: saved.focusMs ?? DEFAULT_FOCUS_MS,
       breakMs: saved.breakMs ?? DEFAULT_BREAK_MS,
       masterVol: saved.masterVol ?? 80,
-      volumes: { ...DEFAULT_VOLUMES, ...saved.volumes },
+      selectedPreset: saved.selectedPreset ?? DEFAULT_PRESET,
     };
   } catch {
-    return { ...DEFAULT_SETTINGS, volumes: { ...DEFAULT_VOLUMES } };
+    return { ...DEFAULT_SETTINGS };
   }
 }
 
@@ -75,7 +74,7 @@ export async function saveSettings(settings: AppSettings): Promise<void> {
     const db = await getDb();
     await db.put("settings", settings, "app");
   } catch {
-    /* 保存失敗は握りつぶす。次回変更時に再試行される */
+    /* 保存失敗は握りつぶす */
   }
 }
 
@@ -98,7 +97,6 @@ export async function saveTodaySessions(count: number): Promise<void> {
   }
 }
 
-/** Phase 4 の設定モーダル「データ全削除」用 */
 export async function clearAllData(): Promise<void> {
   try {
     const db = await getDb();

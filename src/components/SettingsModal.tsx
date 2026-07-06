@@ -1,6 +1,6 @@
-// 設定モーダル: 音の説明 + データ全削除（spec §3.3）
+// 設定モーダル: 音の説明 + データ全削除
 "use client";
-import { CHANNELS } from "@/lib/channels";
+import { AUDIO_PRESETS } from "@/lib/audio-presets";
 
 interface SettingsModalProps {
   open: boolean;
@@ -41,22 +41,20 @@ export function SettingsModal({ open, onClose, onClearData }: SettingsModalProps
         <section className="mb-6">
           <h3 className="mb-3 text-xs tracking-widest text-haze">音について</h3>
           <p className="mb-4 text-[11px] leading-relaxed text-haze">
-            環境音は <code className="text-frost">public/audio/</code>{" "}
-            に配置した MP3 ファイルを再生しています。ファイル名はチャンネル ID（rain.mp3 など）と一致させてください。
+            BGM は <code className="text-frost">public/audio/</code>{" "}
+            の MP3 をプリセット単位で順番にループ再生しています。
           </p>
-          <ul className="flex flex-col gap-2">
-            {CHANNELS.map((ch) => (
-              <li key={ch.id} className="flex items-baseline gap-2 text-[11px]">
-                <span className="shrink-0" style={{ color: ch.color }}>
-                  {ch.name}
-                </span>
-                <span className="text-haze">{ch.id}.mp3</span>
+          <ul className="flex flex-col gap-3">
+            {AUDIO_PRESETS.map((p) => (
+              <li key={p.id} className="text-[11px]">
+                <span style={{ color: p.color }}>{p.name}</span>
+                <ul className="mt-1 flex flex-col gap-0.5 pl-3 text-haze">
+                  {p.files.map((f) => (
+                    <li key={f}>{f.replace("/audio/", "")}</li>
+                  ))}
+                </ul>
               </li>
             ))}
-            <li className="flex items-baseline gap-2 text-[11px]">
-              <span className="shrink-0 text-frost">チャイム</span>
-              <span className="text-haze">chime.mp3（任意）</span>
-            </li>
           </ul>
         </section>
 
