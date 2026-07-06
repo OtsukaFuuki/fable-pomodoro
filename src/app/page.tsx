@@ -1,10 +1,21 @@
 // Phase 1: 円形リング + 集中⇄休憩の状態機械 + 2 カラムレイアウト（md+）
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { GlowSlider } from "@/components/GlowSlider";
+import { MixerRow } from "@/components/MixerRow";
 import { ModeLabel } from "@/components/ModeLabel";
 import { TimerRing } from "@/components/TimerRing";
-import { createRainChannel, ensureContext, playChime, suspendAll, type Channel } from "@/lib/audio-engine";
+import {
+  CHANNELS,
+  DEFAULT_VOLUMES,
+  type ChannelId,
+} from "@/lib/channels";
+import {
+  ensureContext,
+  playChime,
+  setMasterVolume,
+  suspendAll,
+  type Channel,
+} from "@/lib/audio-engine";
 import {
   advanceIfExpired,
   createInitialState,
@@ -120,12 +131,32 @@ export default function Home() {
   const focusMin = Math.round(pomodoro.settings.focusMs / 60_000);
   const breakMin = Math.round(pomodoro.settings.breakMs / 60_000);
 
-  // --- ミキサー（Phase 0.5 の垂直スライスをそのまま維持） ---
+  // --- ミキサー: 6 チャンネル + マスター音量 + 一括停止（spec §3.2） ---
   const [playing, setPlaying] = useState(false);
-  const [rainVolume, setRainVolume] = useState(50);
-  const rain = useRef<Channel | null>(null);
+  const [masterVol, setMasterVol] = useState(80);
+  const [volumes, setVolumes] = useState(DEFAULT_VOLUMES);
+  const channels = useRef<Partial<Record<ChannelId, Channel>>>({});
 
-  useEffect(() => () => rain.current?.dispose(), []);
+  useEffect(
+    () => () => {
+      Object.values(channels.current).forEach((ch) => ch?.dispose());
+      channels.current = {};
+    },
+    [],
+  );
+
+  const ensureChannel = (id: ChannelId): Channel => {
+    if (!channels.current[id]) {
+      const def = CHANNELS.find((d) => d.id === id)!;
+      channels.current[id] = def.create();
+    }
+    return channels.current[id]!;
+  };
+
+  const applyChannelVolume = (id: ChannelId, v: number) => {
+    if (v > 0 && playing) ensureChannel(id).setVolume(v / 100);
+    else if (channels.current[id]) channels.current[id]!.setVolume(v / 100);
+  };
 
   const togglePlay = () => {
     if (playing) {
@@ -134,14 +165,22 @@ export default function Home() {
       return;
     }
     ensureContext();
-    if (!rain.current) rain.current = createRainChannel();
-    rain.current.setVolume(rainVolume / 100);
+    setMasterVolume(masterVol / 100);
+    CHANNELS.forEach((def) => {
+      const vol = volumes[def.id];
+      if (vol > 0) ensureChannel(def.id).setVolume(vol / 100);
+    });
     setPlaying(true);
   };
 
-  const changeRainVolume = (v: number) => {
-    setRainVolume(v);
-    rain.current?.setVolume(v / 100);
+  const changeMasterVol = (v: number) => {
+    setMasterVol(v);
+    setMasterVolume(v / 100);
+  };
+
+  const changeChannelVol = (id: ChannelId, v: number) => {
+    setVolumes((prev) => ({ ...prev, [id]: v }));
+    applyChannelVolume(id, v);
   };
 
   return (
@@ -218,25 +257,35 @@ export default function Home() {
       </section>
 
       <section className="flex flex-col gap-4 rounded-2xl border border-frost/5 bg-panel px-6 py-6">
-        <div className="flex items-center justify-between">
-          <h2 className="text-xs tracking-widest text-haze">環境音</h2>
+        <div className="flex items-center justify-between gap-4">
+          <h2 className="shrink-0 text-xs tracking-widest text-haze">環境音</h2>
           <button
             type="button"
             onClick={togglePlay}
-            className={`${PILL_BTN} border-moon/40 px-8 text-moon shadow-[0_0_16px_rgba(174,184,244,0.15)] hover:shadow-[0_0_28px_rgba(174,184,244,0.35)]`}
+            className={`${PILL_BTN} shrink-0 border-moon/40 px-8 text-moon shadow-[0_0_16px_rgba(174,184,244,0.15)] hover:shadow-[0_0_28px_rgba(174,184,244,0.35)]`}
           >
             {playing ? "一時停止" : "再生"}
           </button>
         </div>
-        <div>
-          <div className="flex items-baseline justify-between">
-            <p className="text-sm text-frost">
-              雨<span className="ml-3 text-[11px] text-haze">しとしとと降りつづく</span>
-            </p>
-            <p className="text-xs tabular-nums text-haze">{rainVolume}</p>
-          </div>
-          <GlowSlider value={rainVolume} onChange={changeRainVolume} color="#9DB8F0" label="雨の音量" />
-        </div>
+
+        <MixerRow
+          name="全体"
+          description="マスター音量"
+          color="#AEB8F4"
+          value={masterVol}
+          onChange={changeMasterVol}
+        />
+
+        {CHANNELS.map((def) => (
+          <MixerRow
+            key={def.id}
+            name={def.name}
+            description={def.description}
+            color={def.color}
+            value={volumes[def.id]}
+            onChange={(v) => changeChannelVol(def.id, v)}
+          />
+        ))}
       </section>
     </main>
   );

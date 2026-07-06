@@ -35,4 +35,4 @@ https://github.com/OtsukaFuuki/fable-pomodoro
 
 ## 現在の状態
 
-Phase 1 まで実装済み。円形リング・集中⇄休憩の状態機械・2 カラムレイアウトが動く。環境音は「雨」チャンネルのみ。残タスクは docs/handoff.md を参照。
+Phase 2 まで実装済み。6 チャンネル環境音ミキサー + ポモドーロタイマーが動く。残タスクは docs/handoff.md を参照。
